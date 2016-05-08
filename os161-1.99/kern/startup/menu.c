@@ -213,6 +213,17 @@ cmd_chdir(int nargs, char **args)
 	return vfs_chdir(args[1]);
 }
 
+static
+int
+cmd_dth(int nargs, char **args)
+{
+	(void)nargs;
+	(void)args;
+
+	kprintf("Debugging messages of type DB_THREADS is enabled.\n");
+	dbflags = DB_THREADS;
+	return 0;
+}
 /*
  * Command for printing the current directory.
  */
@@ -431,6 +442,7 @@ static const char *opsmenu[] = {
 	"[mount]   Mount a filesystem        ",
 	"[unmount] Unmount a filesystem      ",
 	"[bootfs]  Set \"boot\" filesystem     ",
+	"[dth]     Enable DB_THREADS         ",
 	"[pf]      Print a file              ",
 	"[cd]      Change directory          ",
 	"[pwd]     Print current directory   ",
@@ -541,6 +553,7 @@ static struct {
 	{ "mount",	cmd_mount },
 	{ "unmount",	cmd_unmount },
 	{ "bootfs",	cmd_bootfs },
+	{ "dth",    cmd_dth },
 	{ "pf",		printfile },
 	{ "cd",		cmd_chdir },
 	{ "pwd",	cmd_pwd },

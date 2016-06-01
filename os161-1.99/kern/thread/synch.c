@@ -163,7 +163,7 @@ lock_create(const char *name)
                 return NULL;
         }
 
-        lock->wchan = wchan_create(lock->lk_name);
+        lock->lk_wchan = wchan_create(lock->lk_name);
         if (lock->lk_name == NULL) {
             kfree(lock->lk_name);
             kfree(lock);
@@ -172,7 +172,6 @@ lock_create(const char *name)
 
         spinlock_init(&lock->lk_lock);
         //lock->locker = false;
-        //lock->holder = thread_create(lock->lk_name);
         lock->holder = NULL;
         
         // add stuff here as needed
@@ -186,8 +185,8 @@ lock_destroy(struct lock *lock)
         KASSERT(lock != NULL);
 
         // add stuff here as needed
-        spinlock_cleanup(&sem->sem_lock);
-        wchan_destroy(sem->sem_wchan);
+        spinlock_cleanup(&lock->lk_lock);
+        wchan_destroy(lock->lk_wchan);
         kfree(lock->lk_name);
         kfree(lock);
 }
@@ -196,18 +195,18 @@ void
 lock_acquire(struct lock *lock)
 {
         KASSERT(lock != NULL);
-        KASSERT(lock_do_i_hold != curthread);
+        KASSERT(lock->holder != curthread);
         KASSERT(curthread->t_in_interrupt == false);
         spinlock_acquire(&lock->lk_lock);
-        while (lk->locker == true) {
+        while (lock->holder != NULL) {
             wchan_lock(lock->lk_wchan);
             spinlock_release(&lock->lk_lock);
             wchan_sleep(lock->lk_wchan);
  
             spinlock_acquire(&lock->lk_lock);
         }
-        KASSERT(lock_do_i_hold == NULL);
-        lock->locker = true;
+        KASSERT(lock->holder == NULL);
+        //lock->locker = true;
         lock->holder = curthread;
         spinlock_release(&lock->lk_lock);
 
@@ -220,13 +219,15 @@ lock_release(struct lock *lock)
 {
         // Write this
         KASSERT(lock != NULL);
+        KASSERT(lock_do_i_hold(lock));
+        //KASSERT(lock->locker);
         spinlock_acquire(&lock->lk_lock);
-        lock->locker = false;
-        KASSERT(!lock->locker);
-        KASSERT(lock_do_i_hold);
+        //lock->locker = false;
+        lock->holder = NULL;
+        KASSERT(lock->holder == NULL);
+        //KASSERT(!lock->locker);
         wchan_wakeone(lock->lk_wchan);
         spinlock_release(&lock->lk_lock);
-        lock->holder = NULL;
 
         //(void)lock;  // suppress warning until code gets written
 }
@@ -234,7 +235,7 @@ lock_release(struct lock *lock)
 bool
 lock_do_i_hold(struct lock *lock)
 {
-        
+        KASSERT(lock != NULL);
 
         //(void)lock;  // suppress warning until code gets written
 
@@ -262,12 +263,12 @@ cv_create(const char *name)
                 return NULL;
         }
 
-        cv_wchan = wchan_create(cv->cv_name);
+        /*cv_wchan = wchan_create(cv->cv_name);
         if (cv->cv_wchan == NULL) {
             kfree(cv->cv_name);
             kfree(cv);
             return NULL;
-        }
+        }*/
         
         // add stuff here as needed
         

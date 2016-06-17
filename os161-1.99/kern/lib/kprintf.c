@@ -37,10 +37,15 @@
 #include <synch.h>
 #include <mainbus.h>
 #include <vfs.h>          // for vfs_sync()
+#include "opt-A2.h"
 
 
 /* Flags word for DEBUG() macro. */
+#if OPT_A2
+ uint32_t dbflags = DB_SYSCALL;
+#else
 uint32_t dbflags = 0;
+#endif //OPT A2
 
 /* Lock for non-polled kprintfs */
 static struct lock *kprintf_lock;

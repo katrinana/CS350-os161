@@ -38,11 +38,16 @@
 
 #include <spinlock.h>
 #include <thread.h> /* required for struct threadarray */
+#include <syscall.h>
+#include <synch.h>
+#include "opt-A2.h"
 
 struct addrspace;
 struct vnode;
 #ifdef UW
 struct semaphore;
+struct lock;
+struct cv;
 #endif // UW
 
 /*
@@ -58,6 +63,10 @@ struct proc {
 
 	/* VFS */
 	struct vnode *p_cwd;		/* current working directory */
+#if OPT_A2
+	struct pid *p_pid;    /* the pid of this processor */
+
+#endif /* OPT_A2 */ 
 
 #ifdef UW
   /* a vnode to refer to the console device */
@@ -70,6 +79,37 @@ struct proc {
 
 	/* add more material here as needed */
 };
+
+#if OPT_A2
+
+struct pid
+{
+  pid_t cpid;
+  struct proc *p_proc; // the coresponding processor
+  struct pid *parent; // the parent of this process(pid)
+  //struct lock *pid_lock;
+  //struct cv *pid_cv;
+  int exitcode; // if this pid exit or not
+  int children; // num of pids children processors
+  bool running;
+  
+};
+
+
+extern struct array *recycle_array; // the t_pids which are ready to reuse
+extern volatile int recycle; // the total number of total pid in use
+extern struct array *running_proc; // the array of all in use processors' pid
+extern struct lock *recycle_lk;  // the lock for recycle_array
+extern struct lock *running_proc_lk; // the lock for running_proc
+extern struct cv *runprogram_cv;
+
+struct pid *generator (struct proc *proc, int err_msg);
+
+
+
+#endif /* OPT_A2 */
+
+
 
 /* This is the process structure for the kernel and for kernel-only threads. */
 extern struct proc *kproc;

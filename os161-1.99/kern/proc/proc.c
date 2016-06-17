@@ -49,7 +49,12 @@
 #include <vnode.h>
 #include <vfs.h>
 #include <synch.h>
-#include <kern/fcntl.h>  
+#include <kern/fcntl.h> 
+#include <syscall.h>
+#include "opt-A2.h"
+#include <kern/errno.h>
+#include <kern/limits.h>
+
 
 /*
  * The process for the kernel; this holds all the kernel-only threads.
@@ -69,6 +74,15 @@ static struct semaphore *proc_count_mutex;
 struct semaphore *no_proc_sem;   
 #endif  // UW
 
+#if OPT_A2
+static volatile pid_t now_num; //the next t_pid
+struct array *recycle_array; // the t_pids which are ready to reuse
+volatile int recycle; // the total number of total pid in use
+struct array *running_proc; // the array of all in use processors' pid
+struct lock *recycle_lk;  // the lock for recycle_array
+struct lock *running_proc_lk; // the lock for running_proc
+struct cv *runprogram_cv;
+#endif //OPTA_2
 
 
 /*
@@ -99,12 +113,54 @@ proc_create(const char *name)
 	/* VFS fields */
 	proc->p_cwd = NULL;
 
+#if OPT_A2
+	proc->p_pid = NULL;
+
+#endif /* OPT_A2 */
+
+
 #ifdef UW
 	proc->console = NULL;
 #endif // UW
 
 	return proc;
 }
+
+#if OPT_A2
+struct pid * generator(struct proc *proc, int err_msg) {
+  struct pid *tmp_pid;
+  tmp_pid = kmalloc(sizeof(*tmp_pid));
+  if (tmp_pid == NULL) {
+    err_msg = ENOMEM;
+    return NULL;
+  }
+  tmp_pid->p_proc = proc;
+  if (now_num > __PID_MAX) {
+    proc_destroy(proc);
+    err_msg = ENPROC;
+    return NULL;
+  }
+  if (recycle == 0) {
+    tmp_pid->cpid = now_num;
+    now_num++;
+    //array_add(recycle_array, now_num, recycle);
+  } else {
+    lock_acquire(recycle_lk);
+    tmp_pid->cpid = (pid_t) array_get(recycle_array, 0);
+    array_remove(recycle_array, 0);
+    recycle--;
+    lock_release(recycle_lk);
+  }
+  tmp_pid->parent = NULL; 
+  tmp_pid->children = 0;
+  tmp_pid->running = true;
+  lock_acquire(running_proc_lk);
+  array_add(running_proc, tmp_pid, 0);
+  lock_release(running_proc_lk);
+  return tmp_pid;
+} 
+
+#endif //OPT_A2
 
 /*
  * Destroy a proc structure.
@@ -135,6 +191,11 @@ proc_destroy(struct proc *proc)
 		VOP_DECREF(proc->p_cwd);
 		proc->p_cwd = NULL;
 	}
+
+#if OPT_A2
+	//pid_destroy(proc->proc_pid);
+
+#endif /* OPT_A2 */
 
 
 #ifndef UW  // in the UW version, space destruction occurs in sys_exit, not here
@@ -208,6 +269,20 @@ proc_bootstrap(void)
     panic("could not create no_proc_sem semaphore\n");
   }
 #endif // UW 
+
+#if OPT_A2
+  	now_num = 0;
+  	//int err_msg;
+  	//kproc->p_pid = generator(kproc, err_msg);
+
+	recycle_array = array_create();
+	running_proc = array_create();
+	recycle_lk = lock_create("recycle_lk");
+	running_proc_lk = lock_create("running_proc_lk");
+	runprogram_cv = cv_create("runprogram_cv");
+#endif //OPT_A2
+
+
 }
 
 /*
@@ -269,6 +344,14 @@ proc_create_runprogram(const char *name)
 	P(proc_count_mutex); 
 	proc_count++;
 	V(proc_count_mutex);
+#if OPT_A2
+	int err_msg = 0;
+	proc->p_pid = generator(proc, err_msg);
+	if (err_msg != 0) {
+		panic("cannot generate the pid for proc");
+	}
+#endif //OPT_A2
+
 #endif // UW
 
 	return proc;

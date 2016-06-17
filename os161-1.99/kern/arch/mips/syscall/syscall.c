@@ -35,7 +35,7 @@
 #include <thread.h>
 #include <current.h>
 #include <syscall.h>
-
+#include "opt-A2.h"
 
 /*
  * System call dispatcher.
@@ -129,10 +129,16 @@ syscall(struct trapframe *tf)
 			    (int)tf->tf_a2,
 			    (pid_t *)&retval);
 	  break;
+#if OPT_A2
+	  case SYS_fork:
+	  	err = sys_fork(tf, (pid_t *)&retval);
+	  	break;
+#endif //OPT_A2
+
 #endif // UW
 
 	    /* Add stuff here */
- 
+	    DEBUG(DB_SYSCALL, "before Unknown syscall\n");
 	default:
 	  kprintf("Unknown syscall %d\n", callno);
 	  err = ENOSYS;
@@ -176,8 +182,21 @@ syscall(struct trapframe *tf)
  *
  * Thus, you can trash it and do things another way if you prefer.
  */
+#if OPT_A2 
+void enter_forked_process(struct trapframe *tf, pid_t no_use) {
+ 	(void) no_use; // since mips needs two inputs
+ 	//DEBUG(DB_SYSCALL, "enter_forked_process begin\n");
+ 	struct trapframe tf_on_stack;
+ 	tf_on_stack = *tf;
+ 	tf_on_stack.tf_v0 = 0;
+ 	tf_on_stack.tf_a3 = 0;
+ 	tf_on_stack.tf_epc += 4;
+ 	mips_usermode(&tf_on_stack);
+ }
+#else
 void
 enter_forked_process(struct trapframe *tf)
 {
 	(void)tf;
 }
+#endif //OPT_A2

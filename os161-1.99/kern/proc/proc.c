@@ -271,7 +271,7 @@ proc_bootstrap(void)
 #endif // UW 
 
 #if OPT_A2
-  	now_num = 0;
+  	now_num = 1;
   	//int err_msg;
   	//kproc->p_pid = generator(kproc, err_msg);
 

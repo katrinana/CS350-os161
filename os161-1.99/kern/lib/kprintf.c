@@ -42,7 +42,7 @@
 
 /* Flags word for DEBUG() macro. */
 #if OPT_A2
- uint32_t dbflags = DB_SYSCALL;
+ uint32_t dbflags = 0;
 #else
 uint32_t dbflags = 0;
 #endif //OPT A2

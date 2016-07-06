@@ -172,7 +172,7 @@ sys_getpid(pid_t *retval)
   *retval = 1;
 #endif
 
-  return(0);
+  return (0);
 }
 
 /* stub handler for waitpid() system call                */
@@ -202,7 +202,7 @@ sys_waitpid(pid_t pid,
      for (unsigned i = 0; i < num_proc; i++) {
       struct pid* temp = (struct pid*) array_get(running_proc, i);
       if (temp->cpid != pid) continue;
-      if (temp->parent != p->p_pid) {
+      if (temp->cpid == pid && temp->parent != p->p_pid) {
         lock_release(running_proc_lk);
         return (ECHILD);
       } else {
@@ -227,12 +227,12 @@ sys_waitpid(pid_t pid,
     return(EINVAL);
   }
   /* for now, just pretend the exitstatus is 0 */
-  exitstatus = 0;
+  //exitstatus = 0;
   result = copyout((void *)&exitstatus,status,sizeof(int));
   if (result) {
     return(result);
   }
-  DEBUG(DB_SYSCALL, "pid %d \n", pid);
+  //DEBUG(DB_SYSCALL, "pid %d \n", pid);
   *retval = pid;
   return(0);
 }

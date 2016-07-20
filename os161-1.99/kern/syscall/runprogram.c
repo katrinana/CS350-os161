@@ -44,6 +44,7 @@
 #include <vfs.h>
 #include <syscall.h>
 #include <test.h>
+#include <copyinout.h>
 #include "opt-A2.h"
 
 /*
@@ -54,14 +55,19 @@
  */
 
 
- 
+ #if OPT_A2
 int
-runprogram(char *progname)
+runprogram(char *progname, char** argv, unsigned long argc)
+#else
+int runprogram(char* progname)
+#endif //OPT_A2
 {
 	struct addrspace *as;
 	struct vnode *v;
 	vaddr_t entrypoint, stackptr;
 	int result;
+	size_t stoplen;
+
 
 	/* Open the file. */
 	result = vfs_open(progname, O_RDONLY, 0, &v);
@@ -101,10 +107,42 @@ runprogram(char *progname)
 		return result;
 	}
 
-
+#if OPT_A2
+	DEBUG(DB_SYSCALL, "runprogram in a2\n");
+	userptr_t *user_args = kmalloc(sizeof(user_args) * (argc+1));
+  	for (unsigned long i = 0; i < argc; i++) {
+  	  int len = strlen(argv[i]) + 1;
+  	  char* arg = kmalloc(sizeof(char)*len);
+  	  for (int j = 0; j < len - 1; j++) {
+  	  	arg[j] = argv[i][j];
+  	  }
+  	  arg[len-1] = '\0';
+  	  len = ROUNDUP(len * sizeof(char), 8);
+  	  stackptr -= len;
+  	  user_args[i] = (userptr_t)stackptr; 
+  	  result = copyoutstr(arg, (userptr_t) stackptr, (size_t)len, &stoplen);
+  	  if (result) {
+  	    return result;
+  	  }
+  	  kfree(arg);
+  	}
+  	user_args[argc] = NULL;
+  	DEBUG(DB_SYSCALL, "before copyout in rp\n");
+	
+  	int argc_len = ROUNDUP(((argc+1) * sizeof(char*)), 8);
+  	stackptr -= argc_len;
+  	result = copyout(user_args, (userptr_t) stackptr, (size_t)argc_len);
+  	if (result) {
+  	  return result;
+  	}
+  	kfree(user_args);
+  	DEBUG(DB_SYSCALL, "before enter in new process\n");
+	enter_new_process((int)argc, (userptr_t)stackptr, stackptr, entrypoint);
+#else
 	/* Warp to user mode. */
 	enter_new_process(0 /*argc*/, NULL /*userspace addr of argv*/,
 			  stackptr, entrypoint);
+#endif //OPT_a2
 	
 	/* enter_new_process does not return. */
 	panic("enter_new_process returned\n");

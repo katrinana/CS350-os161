@@ -13,6 +13,9 @@
 #include <synch.h>
 #include <mips/trapframe.h>
 #include <kern/limits.h>
+#include <kern/fcntl.h>
+#include <vfs.h>
+#include <limits.h>
 #include "opt-A2.h" 
 
 
@@ -236,4 +239,163 @@ sys_waitpid(pid_t pid,
   *retval = pid;
   return(0);
 }
+
+#if OPT_A2
+
+int sys_execv(char* progname, char** args) {
+  struct addrspace* as;
+  struct vnode *v;
+  int result;
+  vaddr_t entrypoint, stackptr;
+  struct addrspace* old_as;
+  size_t stoplen;
+
+  DEBUG(DB_SYSCALL, "enter sys_execv\n");
+  //check if the args is a vaild user space
+  char** argg;
+  result = copyin((const_userptr_t) args, (void*)&argg, sizeof(char**));
+  if (result) {
+    return result;
+  }
+  DEBUG(DB_SYSCALL, "after check\n");
+
+  //count the # of argrements
+  int argc = 0;
+  while (1) {
+    if (args[argc] == NULL) break;
+    argc++;
+  }
+  argc++; // the NULL terminate
+  if (argc > ARG_MAX) {
+    return E2BIG;
+  }
+
+  //copy these arguements into kernel
+  char** kargs = kmalloc(sizeof(char*) * argc);
+  for (int i = 0; i < argc - 1; i++) {
+    int arglen = strlen(args[i]) + 1;
+    kargs[i] = kmalloc(sizeof(char) * arglen);
+    result = copyinstr((const_userptr_t) args[i], kargs[i], sizeof(char) * arglen, &stoplen);
+    if (result) {
+      for (int j = 0; j < i; j++) {
+        kfree(kargs[j]);
+      }
+      kfree(kargs);
+      return result;
+    }
+  }
+  kargs[argc-1] = NULL;
+
+
+  DEBUG(DB_SYSCALL, "before copy path\n");
+  //copy the program path into kernel
+  int proglen = (strlen(progname) + 1);
+  char* kprogname = kmalloc(sizeof(char) * proglen);
+  result = copyinstr((const_userptr_t)progname, kprogname, proglen, &stoplen);
+  if (result) {
+    for (int j = 0; j < argc - 1; j++) {
+        kfree(kargs[j]);
+      }
+      kfree(kargs);
+      kfree(progname);
+      return result;
+  }
+
+
+  result = vfs_open(kprogname, O_RDONLY, 0, &v);
+  if (result) {
+    for(int i = 0; i < argc - 1; i++) {
+      kfree(kargs[i]);
+    }
+    kfree(kargs);
+    kfree(kprogname);
+    return result;
+  }
+
+  DEBUG(DB_SYSCALL, "before as create\n");
+  /* Create a new address space. */
+  as = as_create();
+  if (as == NULL) {
+    for (int j = 0; j < argc - 1; j++) {
+        kfree(kargs[j]);
+      }
+    kfree(kargs);
+    kfree(kprogname);
+    vfs_close(v);
+    return ENOMEM;
+  }
+
+  /* Switch to it and activate it. */
+  old_as = curproc_setas(as);
+  as_activate();
+
+  /* Load the executable. */
+  result = load_elf(v, &entrypoint);
+  if (result) {
+    vfs_close(v);
+    for (int j = 0; j < argc-1; j++) {
+        kfree(kargs[j]);
+      }
+    kfree(kargs);
+    kfree(kprogname);
+    return result;
+  }
+  /* Done with the file now. */
+  vfs_close(v);
+
+  /* Define the user stack in the address space */
+  result = as_define_stack(as, &stackptr);
+  if (result) {
+    for (int j = 0; j < argc-1; j++) {
+        kfree(kargs[j]);
+      }
+    kfree(kargs);
+    kfree(kprogname);
+    return result;
+  }
+
+  userptr_t *user_args = kmalloc(sizeof(user_args) * argc);
+  for (int i = 0; i < argc -1; i++) {
+    int len = strlen(kargs[i]) + 1;
+    len = ROUNDUP(len, 8);
+    stackptr -= len;
+    user_args[i] = (userptr_t)stackptr; 
+    result = copyoutstr(kargs[i], (userptr_t) stackptr, len, &stoplen);
+    if (result) {
+      return result;
+    }
+  }
+  user_args[argc-1] = NULL;
+
+  int argc_len = ROUNDUP((argc * sizeof(char*)), 8);
+  stackptr -= argc_len;
+  DEBUG(DB_SYSCALL, "before last copycout\n");
+  result = copyout(user_args, (userptr_t)stackptr, (size_t)argc_len);
+  if (result) {
+    return result;
+  }
+  kfree(user_args);
+
+  //delete old address space
+  as_destroy(old_as);
+
+  /*Call enter_new_process with address to the arguments on the stack, 
+  the stack pointer (from as_define_stack), 
+  and the program entry point (from vfs_open)*/
+  enter_new_process(argc-1 , (userptr_t)stackptr, stackptr, entrypoint);
+
+  return 0;
+
+
+}
+
+#endif //OPT_A2
+
+
+
+
+
+
+
+
 

@@ -40,6 +40,13 @@
 #include <mainbus.h>
 #include <syscall.h>
 
+#include <addrspace.h>
+#include <kern/wait.h>
+#include <thread.h>
+#include <proc.h>
+#include <vfs.h>
+#include "opt-A3.h"
+
 
 /* in exception.S */
 extern void asm_usermode(struct trapframe *tf);
@@ -111,6 +118,78 @@ kill_curthread(vaddr_t epc, unsigned code, vaddr_t vaddr)
 	/*
 	 * You will probably want to change this.
 	 */
+
+	#if OPT_A3
+	struct addrspace *as;
+ 	struct proc* p = curproc;
+ 	/* for now, just include this to keep the compiler from complaining about
+ 	   an unused variable */
+ 	
+ 	lock_acquire(running_proc_lk);
+ 	struct pid* p_pid = p->p_pid; 
+ 	if (p_pid->children != 0) {
+ 	  if (p_pid->running) p_pid->running = false;
+ 	  unsigned proc_num = array_num(running_proc);
+ 	  for (unsigned i = 0; i < proc_num ; ++i) {
+ 	    struct pid* temp = (struct pid*)array_get(running_proc, i);	
+ 	    if (temp->parent == p_pid) { // if its children's pid still in use
+ 	      if (!temp->running) { // if the children is not running
+ 	        array_remove(running_proc, i);
+ 	        lock_acquire(recycle_lk);
+ 	        array_add(recycle_array, &temp->cpid, (void*)recycle);
+ 	        lock_release(recycle_lk);
+ 	        kfree(temp);
+ 	        p_pid->children--;
+ 	        --proc_num;
+ 	        --i;
+ 	      } else { // if the children is still running
+ 	        
+ 	        temp->parent = NULL;
+ 	      } 
+ 	    }
+ 	  }
+ 	} 	
+ 	if (p_pid->children == 0) { // if this pid doesn't have any children, or its children are died
+ 	  if (p_pid->running) p_pid->running = false;
+ 	  if (p_pid->parent == NULL) { // if pid has no parent, no child
+ 	    for (unsigned i = 0; i < array_num(running_proc); i++) {
+ 	      if (p_pid == (struct pid *) array_get(running_proc, i)) {
+ 	         array_remove(running_proc, i);
+ 	         break;
+ 	      }
+ 	    }
+ 	    lock_acquire(recycle_lk);
+ 	    array_add(recycle_array, &p_pid->cpid, (void*)recycle);
+ 	    lock_release(recycle_lk);
+ 	    kfree(p_pid);	
+ 	  } else {  // have parent, no children
+ 	    p_pid->parent->exitcode = _MKWAIT_SIG(code);
+ 	    cv_broadcast(runprogram_cv, running_proc_lk);
+ 	  }
+ 	}
+ 	lock_release(running_proc_lk);
+ 	KASSERT(curproc->p_addrspace != NULL);
+ 	as_deactivate();
+ 	/*
+ 	 * clear p_addrspace before calling as_destroy. Otherwise if
+ 	 * as_destroy sleeps (which is quite possible) when we
+ 	 * come back we'll be calling as_activate on a
+ 	 * half-destroyed address space. This tends to be
+ 	 * messily fatal.
+ 	 */
+ 	as = curproc_setas(NULL);
+ 	as_destroy(as);	
+ 	/* detach this thread from its process */
+ 	/* note: curproc cannot be used after this call */
+ 	proc_remthread(curthread);	
+ 	/* if this is the last user process in the system, proc_destroy()
+ 	   will wake up the kernel menu thread */
+ 	proc_destroy(p);
+ 	
+ 	thread_exit();
+ 	/* thread_exit() does not return, so we should never get here */
+ 	panic("return from thread_exit in sys_exit\n");
+	#endif
 
 	kprintf("Fatal user mode trap %u sig %d (%s, epc 0x%x, vaddr 0x%x)\n",
 		code, sig, trapcodenames[code], epc, vaddr);
